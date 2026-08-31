@@ -1,0 +1,29 @@
+node_modules/
+pi-source/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Never add environment files, local Pi project state, or certificate material.
+.env
+.env.*
+!.env.example
+.pi/
+*.key
+*.pem
+*.p12
+
+# Pi credentials, trust decisions, sessions, and local state
+config/settings.json
+config/keybindings.json
+config/*.local.json
+config/*.private.json
+config/*-config.json
+*.jsonl
+*.jsonl.tmp
+*.lock
+analytics/
+swarmia-ai-usage.json
+swarmia-ai-usage.json.*
+swarmia-ai-usage-config.json
+auto-model.json
