@@ -1,3 +1,15 @@
 {
-  "packages": ["/absolute/path/to/pi-files"]
+  "packages": [
+    {
+      "source": "/absolute/path/to/pi-files",
+      "extensions": [
+        "extensions/auto-model.ts",
+        "extensions/git-operation-permission.ts",
+        "extensions/omarchy-system-theme.ts"
+      ],
+      "skills": [],
+      "prompts": [],
+      "themes": []
+    }
+  ]
 }
