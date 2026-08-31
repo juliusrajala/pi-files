@@ -22,7 +22,7 @@ config/*-config.json
 *.jsonl
 *.jsonl.tmp
 *.lock
-analytics/
+/analytics/
 swarmia-ai-usage.json
 swarmia-ai-usage.json.*
 swarmia-ai-usage-config.json
