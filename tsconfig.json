@@ -12,6 +12,11 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["extensions/**/*.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "include": [
+    "extensions/**/*.ts",
+    "skills/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
   "exclude": ["node_modules", "pi-source"]
 }

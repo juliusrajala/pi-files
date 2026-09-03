@@ -54,10 +54,10 @@ export class AnalyticsRecorder {
 
   startSession(sessionId: string): void {
     this.sessionId = sessionId;
+    const startedAt = this.now().toISOString().replaceAll(":", "-");
     this.filePath = join(
       this.rootDir,
-      safeFileComponent(sessionId),
-      `${this.runtimeId}.jsonl`,
+      `${startedAt}_${safeFileComponent(sessionId)}_${this.runtimeId}.jsonl`,
     );
   }
 
@@ -86,13 +86,10 @@ export class AnalyticsRecorder {
     this.queue = this.queue
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(
-          join(this.rootDir, safeFileComponent(this.sessionId ?? "unknown")),
-          {
-            recursive: true,
-            mode: 0o700,
-          },
-        );
+        await mkdir(this.rootDir, {
+          recursive: true,
+          mode: 0o700,
+        });
         await appendFile(filePath, line, { encoding: "utf8", mode: 0o600 });
       })
       .catch(() => undefined)

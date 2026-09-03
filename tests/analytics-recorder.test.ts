@@ -30,7 +30,10 @@ test("writes versioned, content-free event records to a session sidecar", async 
 
   const [line] = (
     await readFile(
-      join(rootDir, "session_a", `${recorder.runtimeId}.jsonl`),
+      join(
+        rootDir,
+        `2026-01-02T03-04-05.000Z_session_a_${recorder.runtimeId}.jsonl`,
+      ),
       "utf8",
     )
   )
@@ -57,7 +60,11 @@ test("writes versioned, content-free event records to a session sidecar", async 
 
 test("records bounded-queue drops after pending writes drain", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "pi-files-analytics-"));
-  const recorder = new AnalyticsRecorder({ rootDir, maxPendingRecords: 1 });
+  const recorder = new AnalyticsRecorder({
+    maxPendingRecords: 1,
+    now: () => new Date("2026-01-02T03:04:05.000Z"),
+    rootDir,
+  });
   recorder.startSession("session-a");
   recorder.record("first", {}, null);
   recorder.record("dropped", {}, null);
@@ -65,7 +72,10 @@ test("records bounded-queue drops after pending writes drain", async () => {
 
   const lines = (
     await readFile(
-      join(rootDir, "session-a", `${recorder.runtimeId}.jsonl`),
+      join(
+        rootDir,
+        `2026-01-02T03-04-05.000Z_session-a_${recorder.runtimeId}.jsonl`,
+      ),
       "utf8",
     )
   )

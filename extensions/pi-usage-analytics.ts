@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import type {
@@ -14,16 +15,34 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
   const recorder = new AnalyticsRecorder();
   const toolStarts = new Map<
     string,
-    { monotonicMs: number; inputBytes: number | null }
+    {
+      interactionId: string | null;
+      monotonicMs: number;
+      inputBytes: number | null;
+    }
   >();
-  const turnStarts = new Map<number, number>();
+  const turnStarts = new Map<
+    number,
+    { interactionId: string | null; monotonicMs: number }
+  >();
+  const interactionState: {
+    activeInteractionId: string | undefined;
+    pendingInteractionId: string | undefined;
+  } = { activeInteractionId: undefined, pendingInteractionId: undefined };
   const skillsByPath = new Map<string, string>();
 
   const leafId = (ctx: ExtensionContext) => ctx.sessionManager.getLeafId();
 
   pi.events.on("pi-files:permission-denied", (data) => {
     if (!isPermissionDenial(data)) return;
-    recorder.record("permission_denied", { operation: data.operation }, null);
+    recorder.record(
+      "permission_denied",
+      {
+        interactionId: interactionState.activeInteractionId ?? null,
+        operation: data.operation,
+      },
+      null,
+    );
   });
 
   pi.on("session_start", (event, ctx) => {
@@ -38,12 +57,15 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
 
   pi.on("input", (event, ctx) => {
     const inputBytes = Buffer.byteLength(event.text, "utf8");
+    const interactionId = randomUUID();
+    interactionState.pendingInteractionId = interactionId;
     recorder.record(
       "input_received",
       {
         attachmentCount: event.images?.length ?? 0,
         characterCount: event.text.length,
         inputBytes,
+        interactionId,
         source: event.source,
         streamingBehavior: event.streamingBehavior ?? null,
       },
@@ -63,22 +85,34 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
   });
 
   pi.on("turn_start", (event, ctx) => {
-    turnStarts.set(event.turnIndex, performance.now());
+    const interactionId =
+      interactionState.activeInteractionId ??
+      interactionState.pendingInteractionId ??
+      null;
+    interactionState.pendingInteractionId = undefined;
+    interactionState.activeInteractionId = interactionId ?? undefined;
+    turnStarts.set(event.turnIndex, {
+      interactionId,
+      monotonicMs: performance.now(),
+    });
     recorder.record(
       "turn_started",
-      { turnIndex: event.turnIndex },
+      { interactionId, turnIndex: event.turnIndex },
       leafId(ctx),
     );
   });
 
   pi.on("turn_end", (event, ctx) => {
-    const startedAt = turnStarts.get(event.turnIndex);
+    const started = turnStarts.get(event.turnIndex);
     turnStarts.delete(event.turnIndex);
     recorder.record(
       "turn_finished",
       {
         durationMs:
-          startedAt === undefined ? null : performance.now() - startedAt,
+          started === undefined
+            ? null
+            : performance.now() - started.monotonicMs,
+        interactionId: started?.interactionId ?? null,
         toolResultCount: event.toolResults.length,
         turnIndex: event.turnIndex,
       },
@@ -87,13 +121,15 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
+    const interactionId = interactionState.activeInteractionId ?? null;
     toolStarts.set(event.toolCallId, {
       inputBytes: estimateJsonBytes(event.args),
+      interactionId,
       monotonicMs: performance.now(),
     });
     recorder.record(
       "tool_started",
-      { toolCallId: event.toolCallId, toolName: event.toolName },
+      { interactionId, toolCallId: event.toolCallId, toolName: event.toolName },
       leafId(ctx),
     );
 
@@ -115,6 +151,7 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
             ? null
             : performance.now() - started.monotonicMs,
         inputBytes: started?.inputBytes ?? null,
+        interactionId: started?.interactionId ?? null,
         isError: event.isError,
         resultBytes: estimateJsonBytes(event.result),
         toolCallId: event.toolCallId,
@@ -133,6 +170,7 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
         cacheReadTokens: usage.cacheRead,
         cacheWriteTokens: usage.cacheWrite,
         inputTokens: usage.input,
+        interactionId: interactionState.activeInteractionId ?? null,
         model: event.message.model,
         outputTokens: usage.output,
         provider: event.message.provider,
@@ -169,6 +207,7 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
       "compaction_finished",
       {
         fromExtension: event.fromExtension,
+        interactionId: interactionState.activeInteractionId ?? null,
         reason: event.reason,
         tokensBefore: event.compactionEntry.tokensBefore,
         willRetry: event.willRetry,
@@ -188,6 +227,7 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
             ? "error"
             : "unknown",
         fromExtension: event.fromExtension,
+        interactionId: interactionState.activeInteractionId ?? null,
         reason: event.reason,
         willRetry: event.willRetry,
       },
@@ -204,7 +244,13 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    recorder.record("agent_settled", {}, leafId(ctx));
+    recorder.record(
+      "agent_settled",
+      { interactionId: interactionState.activeInteractionId ?? null },
+      leafId(ctx),
+    );
+    interactionState.activeInteractionId = undefined;
+    interactionState.pendingInteractionId = undefined;
     await recorder.flush(leafId(ctx));
   });
 }

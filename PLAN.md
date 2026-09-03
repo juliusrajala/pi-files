@@ -236,8 +236,9 @@ Inspect local reports before deciding whether a server ingestion endpoint is use
 - Completed: installed this repository as the global local package and moved the three loose extension files out of `~/.pi/agent/extensions` into a timestamped sibling backup directory. No loose TypeScript extensions remain active, so the package is the only active copy.
 - Remaining: verify real interactive command, shortcut, permission-dialog, and Swarmia-reporting behavior during normal use; restore the archived files and run `pi remove "$(pwd)"` to roll back if needed.
 - Completed: initial analytics capability matrix in `docs/analytics-capability-matrix.md`, including explicit, inferred, unavailable, and excluded data.
-- Completed: initial local-only analytics recorder in `extensions/pi-usage-analytics.ts`, with versioned per-session/runtime JSONL sidecars, `0600` file creation, bounded queued writes, settled/shutdown persistence, tool timing/size metadata, skill signals, compaction outcomes, and permission-denial integration.
-- Not started: Pi source checkout, reporting, and upload consideration.
+- Completed: initial local-only analytics recorder in `extensions/pi-usage-analytics.ts`, with versioned per-session/runtime JSONL sidecars, sortable timestamp-prefixed filenames, `0600` file creation, bounded queued writes, settled/shutdown persistence, interaction correlation, tool timing/size metadata, skill signals, compaction outcomes, and permission-denial integration.
+- Completed: local usage report skill and script in `skills/pi-usage-report/`; it aggregates sidecars and can read prompt text from canonical Pi session files only when explicitly requested.
+- Not started: Pi source checkout and upload consideration.
 
 ## Implementation phases
 
@@ -258,6 +259,7 @@ Inspect local reports before deciding whether a server ingestion endpoint is use
    - Initial recorder and focused tests are complete. Retention, rotation, disk-budget behavior, and an explicit crash-recovery test remain.
 6. **Implement local reporting**
    - Add privacy-safe aggregation and tests for sessions, reloads, forks, branches, and inferred metrics.
+   - Completed initial report script and skill; interaction-level report coverage will improve as new sidecars are recorded.
 7. **Inspect real usage data**
    - Validate whether the metrics reveal actionable bottlenecks and remove fields that are not useful.
 8. **Consider upload separately**
