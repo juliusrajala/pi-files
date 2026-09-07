@@ -4,8 +4,7 @@
       "source": "/absolute/path/to/pi-files",
       "extensions": [
         "extensions/auto-model.ts",
-        "extensions/git-operation-permission.ts",
-        "extensions/omarchy-system-theme.ts"
+        "extensions/command-permission.ts"
       ],
       "skills": [],
       "prompts": [],
