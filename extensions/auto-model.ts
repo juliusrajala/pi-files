@@ -19,7 +19,7 @@ const CONFIG_PATH = join(
 );
 
 export default function (pi: ExtensionAPI) {
-  const state = { enabled: true };
+  const state = { enabled: false };
 
   pi.registerCommand("auto-model", {
     description: "Toggle automatic Terra/Luna selection",
@@ -89,8 +89,10 @@ export default function (pi: ExtensionAPI) {
 }
 
 function setAutoModelStatus(ctx: ExtensionContext, enabled: boolean): void {
-  const status = `Auto-model: ${enabled ? "On" : "Off"}`;
-  ctx.ui.setStatus("auto-model", ctx.ui.theme.fg("dim", status));
+  const color = enabled ? "success" : "dim";
+  const marker = ctx.ui.theme.fg(color, "●");
+  const label = ctx.ui.theme.fg(color, "auto-model");
+  ctx.ui.setStatus("auto-model", `${marker} ${label}  `);
 }
 
 export function chooseModel(prompt: string): string {
