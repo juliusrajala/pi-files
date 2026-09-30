@@ -15,6 +15,7 @@ type GitCommand = {
   command: string;
   end: number;
   operation: GitOperation;
+  requiresRevalidation: boolean;
   start: number;
   title: string;
 };
@@ -47,7 +48,10 @@ const DEFAULT_CONFIG: PermissionConfig = {
 
 // Match git commands at shell command boundaries so ordinary text mentioning git is not gated.
 const GIT_OPERATION_PATTERN =
-  /(?:^|&&\s*|\|\|\s*|[;&|(\n]\s*)(?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*|command\s+)?(git\s+(?:(?:-[^\s]+)(?:\s+(?!-)[^\s]+)?\s+)*(commit(?:-tree)?|push)\b[^\n;&|]*)/gm;
+  /(?:^|&&\s*|\|\|\s*|[;&|(\n]\s*)(env\s+|command\s+)?((?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*)(git\s+(?:(?:-[^\s]+)(?:\s+(?!-)[^\s]+)?\s+)*(commit(?:-tree)?|push)\b[^\n;&|]*)/gm;
+
+const GIT_REVALIDATION_REASON =
+  "Git commit or push was caught after a shell assignment. Stop and re-validate with the user whether you should be using Git before retrying with a direct Git command that shows the approval prompt.";
 
 export default async function (pi: ExtensionAPI) {
   const config = await readPermissionConfig(getAgentDir());
@@ -63,6 +67,12 @@ export default async function (pi: ExtensionAPI) {
     );
     if (protectedCommands.length === 0) {
       return;
+    }
+
+    const revalidationReason = getGitRevalidationReason(protectedCommands);
+    if (revalidationReason) {
+      emitPermissionDenied(pi, protectedCommands);
+      return { block: true, reason: revalidationReason };
     }
 
     if (!ctx.hasUI) {
@@ -200,21 +210,35 @@ export function findGitCommands(command: string): GitCommand[] {
   const gitCommands: GitCommand[] = [];
 
   for (const match of command.matchAll(GIT_OPERATION_PATTERN)) {
-    const gitCommand = match[1];
+    const gitCommand = match[3];
     if (gitCommand === undefined) continue;
 
-    const operation = match[2] === "push" ? "push" : "commit";
+    const operation = match[4] === "push" ? "push" : "commit";
     const start = (match.index ?? 0) + match[0].lastIndexOf(gitCommand);
     gitCommands.push({
       command: gitCommand,
       end: start + gitCommand.length,
       operation,
+      requiresRevalidation:
+        match[1] === undefined && (match[2]?.length ?? 0) > 0,
       start,
       title: operation,
     });
   }
 
   return gitCommands;
+}
+
+export function getGitRevalidationReason(
+  protectedCommands: readonly ProtectedCommand[],
+): string | null {
+  return protectedCommands.some(
+    (protectedCommand) =>
+      protectedCommand.operation !== "script" &&
+      protectedCommand.requiresRevalidation,
+  )
+    ? GIT_REVALIDATION_REASON
+    : null;
 }
 
 export function findProtectedCommands(

@@ -5,6 +5,7 @@ import {
   findGitCommands,
   findProtectedCommands,
   getConfirmationTitle,
+  getGitRevalidationReason,
   highlightProtectedCommands,
   parsePermissionConfig,
 } from "../extensions/command-permission.ts";
@@ -25,6 +26,46 @@ test("finds commit and push commands at shell boundaries", () => {
     ],
   );
   assert.equal(getConfirmationTitle(operations), "Allow Git commit and push?");
+  assert.equal(getGitRevalidationReason(operations), null);
+});
+
+test("blocks assignment-prefixed Git writes and requests user re-validation", () => {
+  const command =
+    'cd ../worktree && PATH="$HOME/.nodenv/versions/24.21.0/bin:$PATH" git commit -m "save view"; PATH=/tmp/bin:$PATH git push -u origin feature';
+  const operations = findProtectedCommands(command);
+
+  assert.deepEqual(
+    operations.map(({ command: value, operation }) => ({
+      command: value,
+      operation,
+    })),
+    [
+      { command: 'git commit -m "save view"', operation: "commit" },
+      { command: "git push -u origin feature", operation: "push" },
+    ],
+  );
+  assert.equal(
+    getGitRevalidationReason(operations),
+    "Git commit or push was caught after a shell assignment. Stop and re-validate with the user whether you should be using Git before retrying with a direct Git command that shows the approval prompt.",
+  );
+});
+
+test("keeps the approval prompt for direct Git commands and explicit env", () => {
+  const operations = findGitCommands(
+    "git -C ../worktree commit -m view && env CI=1 git push origin feature",
+  );
+
+  assert.deepEqual(
+    operations.map(({ operation, requiresRevalidation }) => ({
+      operation,
+      requiresRevalidation,
+    })),
+    [
+      { operation: "commit", requiresRevalidation: false },
+      { operation: "push", requiresRevalidation: false },
+    ],
+  );
+  assert.equal(getGitRevalidationReason(operations), null);
 });
 
 test("does not gate ordinary text that mentions a Git operation", () => {
@@ -84,12 +125,15 @@ test("can disable the default Git protections", () => {
     scripts: [{ command: "scripts/deploy", title: "deployment" }],
   });
 
+  const operations = findProtectedCommands(
+    "PATH=/tmp/bin:$PATH git push && scripts/deploy production",
+    config,
+  );
   assert.deepEqual(
-    findProtectedCommands("git push && scripts/deploy production", config).map(
-      ({ command, operation }) => ({ command, operation }),
-    ),
+    operations.map(({ command, operation }) => ({ command, operation })),
     [{ command: "scripts/deploy", operation: "script" }],
   );
+  assert.equal(getGitRevalidationReason(operations), null);
 });
 
 test("ignores malformed configured scripts", () => {

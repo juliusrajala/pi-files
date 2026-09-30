@@ -9,8 +9,8 @@ type AutoModelConfig = {
   disabledRepositories?: string[];
 };
 
-export const TERRA = "gpt-5.6-terra";
-export const LUNA = "gpt-5.6-luna";
+export const ASTRA = "gpt-6-astra";
+export const LUNA = "gpt-6-luna";
 const CONFIG_PATH = join(
   process.env.HOME ?? "",
   ".pi",
@@ -22,7 +22,7 @@ export default function (pi: ExtensionAPI) {
   const state = { enabled: false };
 
   pi.registerCommand("auto-model", {
-    description: "Toggle automatic Terra/Luna selection",
+    description: "Toggle automatic Astra/Luna selection",
     handler: async (args, ctx) => {
       const command = args.trim().toLowerCase();
       if (command === "on" || command === "off") {
@@ -43,7 +43,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerShortcut("f8", {
-    description: "Toggle automatic Terra/Luna selection",
+    description: "Toggle automatic Astra/Luna selection",
     handler: async (ctx) => {
       state.enabled = !state.enabled;
       setAutoModelStatus(ctx, state.enabled);
@@ -96,19 +96,19 @@ function setAutoModelStatus(ctx: ExtensionContext, enabled: boolean): void {
 }
 
 export function chooseModel(prompt: string): string {
-  const terraSignals = [
+  const complexitySignals = [
     /architect|architecture|design|redesign|trade-?off/i,
     /debug|investigate|diagnos|root cause|race condition|flak/i,
     /refactor|restructure|migrat|multi[- ]file|cross[- ]cutting/i,
     /security|permission|auth|database schema|backfill/i,
     /complex|ambiguous|carefully|thorough|review the whole/i,
   ];
-  const score = terraSignals.reduce(
+  const score = complexitySignals.reduce(
     (total, signal) => total + (signal.test(prompt) ? 1 : 0),
     0,
   );
 
-  return score >= 1 || prompt.length > 700 ? TERRA : LUNA;
+  return score >= 1 || prompt.length > 700 ? ASTRA : LUNA;
 }
 
 function getRepositoryPath(cwd: string): string | undefined {
