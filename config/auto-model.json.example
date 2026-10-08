@@ -1,0 +1,7 @@
+{
+  "provider": "openai-codex",
+  "planningModel": "gpt-6-astra",
+  "complexPlanningModel": "gpt-6.1-sol",
+  "implementationModel": "gpt-6-luna",
+  "disabledRepositories": []
+}

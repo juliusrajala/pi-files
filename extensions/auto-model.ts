@@ -1,91 +1,147 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+
+import {
+  getAgentDir,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type ModelRoute,
+  type ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
 
-type AutoModelConfig = {
-  disabledRepositories?: string[];
-};
-
+export const SOL = "gpt-6.1-sol";
 export const ASTRA = "gpt-6-astra";
 export const LUNA = "gpt-6-luna";
-const CONFIG_PATH = join(
-  process.env.HOME ?? "",
-  ".pi",
-  "agent",
-  "auto-model.json",
-);
+export const ROUTER_PROVIDER = "jev";
+export const ROUTER_ID = "auto";
 
-export default function (pi: ExtensionAPI) {
-  const state = { enabled: false };
+export type AutoModelConfig = {
+  provider: string;
+  planningModel: string;
+  complexPlanningModel: string;
+  implementationModel: string;
+  disabledRepositories: string[];
+};
+
+export type JevState = {
+  phase: "planning" | "implementation";
+  model: string;
+};
+
+type JevRequest = ModelRouteRequest<JevState>;
+
+// Based on Pi 0.99.1's examples/extensions/jev-router.ts. Keep the planning
+// model through the first edit, then accept one cache miss to implement on Luna.
+export default function autoModelExtension(pi: ExtensionAPI) {
+  const config = readAutoModelConfig(getAgentDir());
+
+  pi.registerVirtualModel<JevState>({
+    provider: ROUTER_PROVIDER,
+    id: ROUTER_ID,
+    name: "Auto (Jev)",
+    thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+    async route(request, ctx) {
+      if (isDisabled(ctx.cwd, config)) {
+        throw new Error(
+          "Auto model routing is disabled here. Select a physical model or run /auto-model off.",
+        );
+      }
+      if (request.reason === "direct") {
+        return routeTo(request, ctx, config, config.implementationModel);
+      }
+      const state = request.state;
+      if (!state) {
+        const model = await choosePlanningModel(request, ctx, config);
+        return routeTo(request, ctx, config, model, {
+          phase: "planning",
+          model,
+        });
+      }
+      if (state.phase === "planning" && editedThisTurn(request.messages)) {
+        const model = config.implementationModel;
+        return routeTo(request, ctx, config, model, {
+          phase: "implementation",
+          model,
+        });
+      }
+      return routeTo(request, ctx, config, state.model);
+    },
+  });
+
+  async function setEnabled(enabled: boolean, ctx: ExtensionContext) {
+    try {
+      if (enabled !== isAutoModel(ctx.model)) {
+        if (enabled && isDisabled(ctx.cwd, config)) {
+          throw new Error("Auto model routing is disabled here.");
+        }
+        if (enabled) {
+          for (const id of new Set([
+            config.planningModel,
+            config.complexPlanningModel,
+            config.implementationModel,
+          ])) {
+            const target = findPhysicalModel(ctx, config.provider, id);
+            if (!ctx.modelRegistry.hasConfiguredAuth(target)) {
+              throw new Error(
+                `Sign in to ${config.provider} before enabling auto model routing.`,
+              );
+            }
+          }
+        }
+        const model = enabled
+          ? ctx.modelRegistry.find(ROUTER_PROVIDER, ROUTER_ID)
+          : (lastPhysicalModel(ctx) ??
+            findPhysicalModel(ctx, config.provider, config.planningModel));
+        if (!model || !(await pi.setModel(model))) {
+          throw new Error(
+            "Could not change model; check model availability and authentication.",
+          );
+        }
+      }
+      setAutoModelStatus(ctx, enabled);
+      ctx.ui.notify(
+        `Auto model selection: ${enabled ? "on (Jev)" : "off"}`,
+        "info",
+      );
+    } catch (error) {
+      ctx.ui.notify(
+        error instanceof Error ? error.message : String(error),
+        "error",
+      );
+    }
+  }
 
   pi.registerCommand("auto-model", {
-    description: "Toggle automatic Astra/Luna selection",
+    description: "Toggle the Jev planning/implementation router",
     handler: async (args, ctx) => {
       const command = args.trim().toLowerCase();
-      if (command === "on" || command === "off") {
-        state.enabled = command === "on";
-      } else if (command === "" || command === "toggle") {
-        state.enabled = !state.enabled;
-      } else if (command !== "status") {
+      if (!["", "toggle", "on", "off", "status"].includes(command)) {
         ctx.ui.notify("Usage: /auto-model [on|off|toggle|status]", "error");
         return;
       }
-
-      setAutoModelStatus(ctx, state.enabled);
-      ctx.ui.notify(
-        `Auto model selection: ${state.enabled ? "on" : "off"}`,
-        "info",
+      const enabled = isAutoModel(ctx.model);
+      await setEnabled(
+        command === "status"
+          ? enabled
+          : command === "on" || (command !== "off" && !enabled),
+        ctx,
       );
     },
   });
 
   pi.registerShortcut("f8", {
-    description: "Toggle automatic Astra/Luna selection",
-    handler: async (ctx) => {
-      state.enabled = !state.enabled;
-      setAutoModelStatus(ctx, state.enabled);
-      ctx.ui.notify(
-        `Auto model selection: ${state.enabled ? "on" : "off"}`,
-        "info",
-      );
-    },
+    description: "Toggle the Jev planning/implementation router",
+    handler: (ctx) => setEnabled(!isAutoModel(ctx.model), ctx),
   });
 
-  pi.on("session_start", async (_event, ctx) => {
-    setAutoModelStatus(
-      ctx,
-      state.enabled && !isDisabled(getRepositoryPath(ctx.cwd) ?? ""),
-    );
-  });
-
-  pi.on("before_agent_start", async (event, ctx) => {
-    const repository = getRepositoryPath(ctx.cwd);
-    if (!state.enabled || repository === undefined || isDisabled(repository)) {
-      return;
-    }
-
-    const targetModelId = chooseModel(event.prompt);
-    if (ctx.model?.id === targetModelId) {
-      return;
-    }
-
-    const model = ctx.modelRegistry.find("openai-codex", targetModelId);
-    if (model === undefined) {
-      console.warn(`[auto-model] Model not available: ${targetModelId}`);
-      return;
-    }
-
-    const changed = await pi.setModel(model);
-    if (changed) {
-      setAutoModelStatus(ctx, true);
-      console.log(
-        `[auto-model] ${repository}: ${targetModelId} for ${summarizeReason(event.prompt)}`,
-      );
-    }
-  });
+  const updateStatus = (ctx: ExtensionContext) =>
+    setAutoModelStatus(ctx, isAutoModel(ctx.model));
+  pi.on("session_start", (_event, ctx) => updateStatus(ctx));
+  pi.on("session_tree", (_event, ctx) => updateStatus(ctx));
+  pi.on("model_select", (_event, ctx) => updateStatus(ctx));
+  pi.on("session_shutdown", (_event, ctx) =>
+    ctx.ui.setStatus("auto-model", undefined),
+  );
 }
 
 function setAutoModelStatus(ctx: ExtensionContext, enabled: boolean): void {
@@ -95,54 +151,174 @@ function setAutoModelStatus(ctx: ExtensionContext, enabled: boolean): void {
   ctx.ui.setStatus("auto-model", `${marker} ${label}  `);
 }
 
-export function chooseModel(prompt: string): string {
-  const complexitySignals = [
-    /architect|architecture|design|redesign|trade-?off/i,
-    /debug|investigate|diagnos|root cause|race condition|flak/i,
-    /refactor|restructure|migrat|multi[- ]file|cross[- ]cutting/i,
-    /security|permission|auth|database schema|backfill/i,
-    /complex|ambiguous|carefully|thorough|review the whole/i,
-  ];
-  const score = complexitySignals.reduce(
-    (total, signal) => total + (signal.test(prompt) ? 1 : 0),
-    0,
+function routeTo(
+  request: JevRequest,
+  ctx: ExtensionContext,
+  config: AutoModelConfig,
+  id: string,
+  state?: JevState,
+): ModelRoute<JevState> {
+  return {
+    model: findPhysicalModel(ctx, config.provider, id),
+    thinkingLevel: request.thinkingLevel,
+    ...(state ? { state } : {}),
+  };
+}
+
+async function choosePlanningModel(
+  request: JevRequest,
+  ctx: ExtensionContext,
+  config: AutoModelConfig,
+): Promise<string> {
+  // Match the upstream router: retain an existing planning model to avoid a cache miss.
+  const previous = request.previous?.model;
+  if (
+    previous?.provider === config.provider &&
+    [config.planningModel, config.complexPlanningModel].includes(previous.id)
+  ) {
+    return previous.id;
+  }
+  const jev = ctx.modelRegistry.findOfType(
+    "classifier",
+    "typesafe",
+    "jev-latest",
   );
-
-  return score >= 1 || prompt.length > 700 ? ASTRA : LUNA;
+  if (!jev) return config.planningModel;
+  const result = await ctx.modelRegistry.classify(
+    jev,
+    {
+      state: { prompt: lastUserText(request.messages).slice(0, 16_000) },
+      questions: {
+        complexity: {
+          type: "choice",
+          instructions:
+            "How demanding is the software engineering work requested in `prompt`?",
+          criteria: {
+            standard: "Ordinary features, fixes, reviews, or questions",
+            complex: "Subtle design, cross-cutting changes, or hard debugging",
+          },
+        },
+      },
+    },
+    request.signal ? { signal: request.signal } : {},
+  );
+  const answer =
+    result.stopReason === "stop" ? result.answers.complexity : undefined;
+  return answer?.type === "choice" && (answer.probabilities.complex ?? 0) >= 0.5
+    ? config.complexPlanningModel
+    : config.planningModel;
 }
 
-function getRepositoryPath(cwd: string): string | undefined {
-  try {
-    return realpathSync(resolve(cwd));
-  } catch {
-    return undefined;
-  }
+function lastUserText(messages: JevRequest["messages"]): string {
+  const content =
+    messages.findLast((message) => message.role === "user")?.content ?? "";
+  return typeof content === "string"
+    ? content
+    : content
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join("\n");
 }
 
-function isDisabled(repository: string): boolean {
-  if (!existsSync(CONFIG_PATH)) {
-    return false;
-  }
-
-  try {
-    const config = JSON.parse(
-      readFileSync(CONFIG_PATH, "utf8"),
-    ) as AutoModelConfig;
-    return (config.disabledRepositories ?? []).some((path) => {
-      try {
-        return realpathSync(resolve(path)) === repository;
-      } catch {
-        return resolve(path) === repository;
-      }
-    });
-  } catch (error) {
-    console.warn(
-      `[auto-model] Could not read ${CONFIG_PATH}: ${String(error)}`,
+function editedThisTurn(messages: JevRequest["messages"]): boolean {
+  const lastUser = messages.findLastIndex((message) => message.role === "user");
+  return messages.slice(lastUser + 1).some((message) => {
+    if (message.role !== "toolResult") return false;
+    if (["edit", "write"].includes(message.toolName) && !message.isError)
+      return true;
+    // Codemode edits are nested calls, not standalone transcript messages.
+    return (
+      message.nestedCalls?.calls.some(
+        (call) => ["edit", "write"].includes(call.name) && call.status === "ok",
+      ) ?? false
     );
-    return false;
+  });
+}
+
+function isAutoModel(model: ExtensionContext["model"]): boolean {
+  return model?.provider === ROUTER_PROVIDER && model.id === ROUTER_ID;
+}
+
+function findPhysicalModel(
+  ctx: ExtensionContext,
+  provider: string,
+  id: string,
+): ModelRoute["model"] {
+  const model = ctx.modelRegistry.find(provider, id);
+  if (!model || model.api === "pi-virtual") {
+    throw new Error(
+      `Physical model ${provider}/${id} is not available. Check auto-model.json and /model.`,
+    );
+  }
+  return model;
+}
+
+function lastPhysicalModel(
+  ctx: ExtensionContext,
+): ModelRoute["model"] | undefined {
+  for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+    const reference =
+      entry.type === "model_change"
+        ? { provider: entry.provider, id: entry.modelId }
+        : entry.type === "message" && entry.message.role === "assistant"
+          ? { provider: entry.message.provider, id: entry.message.model }
+          : undefined;
+    if (!reference) continue;
+    const model = ctx.modelRegistry.find(reference.provider, reference.id);
+    if (model && model.api !== "pi-virtual") return model;
+  }
+  return undefined;
+}
+
+function isDisabled(cwd: string, config: AutoModelConfig): boolean {
+  return config.disabledRepositories.some(
+    (path) => canonicalPath(path) === canonicalPath(cwd),
+  );
+}
+
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(resolve(path));
+  } catch {
+    return resolve(path);
   }
 }
 
-export function summarizeReason(prompt: string): string {
-  return prompt.replace(/\s+/g, " ").slice(0, 100);
+export function readAutoModelConfig(agentDir: string): AutoModelConfig {
+  const path = join(agentDir, "auto-model.json");
+  let value: unknown = {};
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    if (
+      !(error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      throw new Error(`Could not read ${path}; check its JSON syntax.`, {
+        cause: error,
+      });
+    }
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${path} must contain a configuration object.`);
+  }
+  const config = value as Record<string, unknown>;
+  function modelSetting(key: string, fallback: string): string {
+    const setting = config[key] ?? fallback;
+    if (typeof setting !== "string" || !setting.trim())
+      throw new Error(`Invalid ${key} in ${path}.`);
+    return setting.trim();
+  }
+  const disabled = config.disabledRepositories ?? [];
+  if (
+    !Array.isArray(disabled) ||
+    !disabled.every((item) => typeof item === "string" && item.trim())
+  ) {
+    throw new Error(`Invalid disabledRepositories in ${path}.`);
+  }
+  return {
+    provider: modelSetting("provider", "openai-codex"),
+    planningModel: modelSetting("planningModel", ASTRA),
+    complexPlanningModel: modelSetting("complexPlanningModel", SOL),
+    implementationModel: modelSetting("implementationModel", LUNA),
+    disabledRepositories: disabled,
+  };
 }
