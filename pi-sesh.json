@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "image": "docker.io/library/node:22-bookworm-slim",
+  "workspace": "mount",
+  "network": "none"
+}

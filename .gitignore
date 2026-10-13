@@ -23,7 +23,4 @@ config/*-config.json
 *.jsonl.tmp
 *.lock
 /analytics/
-swarmia-ai-usage.json
-swarmia-ai-usage.json.*
-swarmia-ai-usage-config.json
 auto-model.json

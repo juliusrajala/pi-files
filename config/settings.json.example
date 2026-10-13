@@ -4,7 +4,8 @@
       "source": "/absolute/path/to/pi-files",
       "extensions": [
         "extensions/auto-model.ts",
-        "extensions/command-permission.ts"
+        "extensions/command-permission.ts",
+        "extensions/pi-sesh-status.ts"
       ],
       "skills": [],
       "prompts": [],

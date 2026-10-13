@@ -189,6 +189,14 @@ function printReport({
   const turns = events.filter((event) => event.type === "turn_finished");
   const tools = events.filter((event) => event.type === "tool_finished");
   const toolErrors = tools.filter((event) => booleanValue(event.data.isError));
+  const topLevelTools = tools.filter(
+    (event) => event.data.parentToolCallId === null,
+  );
+  const nestedTools = tools.filter(
+    (event) => stringValue(event.data.parentToolCallId) !== undefined,
+  );
+  const unknownDepthTools =
+    tools.length - topLevelTools.length - nestedTools.length;
   const interactions = collectInteractions(events);
   const totalTokens = sumNumber(responses, "totalTokens");
   const cacheReadTokens = sumNumber(responses, "cacheReadTokens");
@@ -208,18 +216,23 @@ function printReport({
   console.log(`- Input characters: ${sumNumber(inputs, "characterCount")}`);
   console.log(`- Assistant responses: ${responses.length}`);
   console.log(`- Turns: ${turns.length}`);
-  console.log(`- Tool calls: ${tools.length} (${toolErrors.length} errors)`);
+  console.log(
+    `- Tool calls: ${tools.length} (${toolErrors.length} errors; ${topLevelTools.length} top-level, ${nestedTools.length} nested, ${unknownDepthTools} legacy/unknown depth)`,
+  );
   console.log(
     `- Tool calls per response: ${average(tools.length, responses.length)}`,
   );
   console.log(`\n## Tokens`);
-  console.log(`- Total: ${formatNumber(totalTokens)}`);
+  console.log(`- Assistant-only total: ${formatNumber(totalTokens)}`);
   console.log(`- Input: ${formatNumber(sumNumber(responses, "inputTokens"))}`);
   console.log(
     `- Output: ${formatNumber(sumNumber(responses, "outputTokens"))}`,
   );
   console.log(
     `- Cache read: ${formatNumber(cacheReadTokens)} (${ratio(cacheReadTokens, totalTokens)})`,
+  );
+  console.log(
+    `- Tool/classifier/background usage: not included; only assistant-message usage is observable here.`,
   );
   console.log(`\n## Models`);
   printCounts(responses, (event) => stringValue(event.data.model) ?? "unknown");
@@ -232,7 +245,9 @@ function printReport({
   );
   console.log(`\n## Timing`);
   console.log(`- Turn duration: ${summarizeDurations(turnDurations)}`);
-  console.log(`- Tool duration: ${summarizeDurations(toolDurations)}`);
+  console.log(
+    `- Tool duration (cumulative execution time; parallel/nested durations can overlap): ${summarizeDurations(toolDurations)}`,
+  );
   console.log(`\n## Other events`);
   for (const type of [
     "permission_denied",
@@ -335,7 +350,15 @@ function printToolCounts(events: AnalyticsEvent[]): void {
     const errors = matching.filter((event) =>
       booleanValue(event.data.isError),
     ).length;
-    console.log(`- ${name}: ${matching.length} (${errors} errors)`);
+    const nested = matching.filter(
+      (event) => stringValue(event.data.parentToolCallId) !== undefined,
+    ).length;
+    const topLevel = matching.filter(
+      (event) => event.data.parentToolCallId === null,
+    ).length;
+    console.log(
+      `- ${name}: ${matching.length} (${errors} errors; ${topLevel} top-level, ${nested} nested, ${matching.length - topLevel - nested} legacy/unknown depth)`,
+    );
   }
 }
 

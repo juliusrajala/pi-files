@@ -11,10 +11,15 @@ if [[ -e "$target" && ! -d "$target/.git" ]]; then
 fi
 
 if [[ ! -d "$target/.git" ]]; then
-  git clone https://github.com/earendil-works/pi-mono.git "$target"
+  git clone https://github.com/earendil-works/pi.git "$target"
 fi
 
-git -C "$target" fetch --tags --force
+if [[ -n "$(git -C "$target" status --porcelain)" ]]; then
+  echo "Refusing to update a Pi source checkout with local changes: $target" >&2
+  exit 1
+fi
+
+git -C "$target" fetch --tags
 if git -C "$target" rev-parse -q --verify "refs/tags/v$expected_version" >/dev/null; then
   git -C "$target" checkout --detach "v$expected_version"
 elif git -C "$target" rev-parse -q --verify "refs/tags/$expected_version" >/dev/null; then

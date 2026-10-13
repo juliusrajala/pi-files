@@ -15,7 +15,24 @@ pi install "$(pwd)"
 
 `pi install` adds this directory as a local package without copying it. Use `/reload` after changing auto-discovered package resources, or restart Pi.
 
-The development dependency and the installed `pi` CLI must have the same version. `npm run check:pi-version` checks that relationship. To also check a development source checkout, clone Pi at `pi-source/` and run `npm run check:pi-version -- --require-source`.
+The manifest pin, installed `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`, and external `pi` CLI must have the same version. The check deliberately ignores npm's prepended `node_modules/.bin`; it resolves `pi` from the remaining `PATH`. Set `PI_CLI_PATH=/absolute/path/to/pi` or pass `npm run check:pi-version -- --pi /absolute/path/to/pi` to choose the CLI explicitly. `npm run check` verifies the installed development packages and checks the CLI whenever one is available; `--allow-missing-cli` is used there to support package-only environments. To require an installed CLI, run `npm run check:pi-version`. To also check a development source checkout, clone Pi at `pi-source/` and run `npm run check:pi-version -- --require-source`.
+
+## Container sessions
+
+Run the complete Pi process inside the project's development image:
+
+```sh
+pi-sesh launch pi
+pi-sesh launch pi -- --mode rpc
+```
+
+The trusted user preset resolves the current standalone Pi distribution on each launch. Program files and selected package folders are mounted read-only. Settings and explicitly selected credentials are copied into private session resources. Pi, extensions, new tools, and subprocesses run inside the same container. The project image does not contain Pi.
+
+See [sesh/README.md](sesh/README.md) for setup and offline validation. The helper has no Pi version pin or individual tool list. It does not install tools or rebuild images.
+
+`extensions/pi-sesh-status.ts` displays a green dot and session name when Pi runs inside pi-sesh. It records the container ID association in Pi session metadata. The extension must be selected in the package's `extensions` filter; `sesh/setup.ts` copies the filters from your selected Pi settings and does not add it automatically. Add this filename to that filter before running pi-sesh. The former status filename and host tool-routing extension are removed.
+
+The active host preset and host credentials are not changed automatically. Review the project image before supplying selected credentials. Use an isolated clone and `network: "none"` for offline work.
 
 ## Local configuration
 
@@ -41,4 +58,4 @@ Do not also load a separate `jev-router.ts` registering `jev/auto`.
 
 `command-permission` always protects `git commit` and `git push`. Copy `config/command-permission.json.example` to `~/.pi/agent/command-permission.json` and add private command prefixes under `scripts`. The package is installed globally, so Pi sessions started by another agent load the extension and this configuration too when they use the standard agent directory. Sessions started with `--no-extensions` or a different `PI_CODING_AGENT_DIR` must explicitly load the package or provide the same configuration.
 
-This package is installed as the global local package. The former loose extension files were archived outside this repository at `~/.pi/agent/extensions.pre-pi-files-<timestamp>/`; restore them and run `pi remove "$(pwd)"` to roll back. See [PLAN.md](PLAN.md) for the remaining Pi 0.99.1 compatibility work and [the analytics capability matrix](docs/analytics-capability-matrix.md) for the recorder's privacy boundary.
+The settings example loads auto-model, command-permission, and the pi-sesh status extension. It disables package skills, prompts, and themes. See [the analytics capability matrix](docs/analytics-capability-matrix.md) for the local recorder's privacy boundary.

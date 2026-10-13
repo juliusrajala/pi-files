@@ -30,7 +30,7 @@ export type JevState = {
 
 type JevRequest = ModelRouteRequest<JevState>;
 
-// Based on Pi 0.99.1's examples/extensions/jev-router.ts. Keep the planning
+// Based on Pi's bundled Jev router example. Keep the planning
 // model through the first edit, then accept one cache miss to implement on Luna.
 export default function autoModelExtension(pi: ExtensionAPI) {
   const config = readAutoModelConfig(getAgentDir());

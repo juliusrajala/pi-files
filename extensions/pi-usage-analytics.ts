@@ -19,6 +19,7 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
       interactionId: string | null;
       monotonicMs: number;
       inputBytes: number | null;
+      parentToolCallId: string | null;
     }
   >();
   const turnStarts = new Map<
@@ -126,10 +127,16 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
       inputBytes: estimateJsonBytes(event.args),
       interactionId,
       monotonicMs: performance.now(),
+      parentToolCallId: event.parentToolCallId ?? null,
     });
     recorder.record(
       "tool_started",
-      { interactionId, toolCallId: event.toolCallId, toolName: event.toolName },
+      {
+        interactionId,
+        parentToolCallId: event.parentToolCallId ?? null,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+      },
       leafId(ctx),
     );
 
@@ -153,6 +160,8 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
         inputBytes: started?.inputBytes ?? null,
         interactionId: started?.interactionId ?? null,
         isError: event.isError,
+        parentToolCallId:
+          started?.parentToolCallId ?? event.parentToolCallId ?? null,
         resultBytes: estimateJsonBytes(event.result),
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -163,7 +172,21 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
 
   pi.on("message_end", (event, ctx) => {
     if (event.message.role !== "assistant") return;
-    const usage = event.message.usage;
+    const message = event.message;
+    if (message.stopReason === "error" || message.stopReason === "aborted") {
+      recorder.record(
+        "assistant_failed",
+        {
+          interactionId: interactionState.activeInteractionId ?? null,
+          outcome: message.stopReason,
+          provider: message.provider,
+          model: message.model,
+        },
+        leafId(ctx),
+      );
+      return;
+    }
+    const usage = message.usage;
     recorder.record(
       "assistant_completed",
       {
@@ -171,11 +194,13 @@ export default function piUsageAnalyticsExtension(pi: ExtensionAPI) {
         cacheWriteTokens: usage.cacheWrite,
         inputTokens: usage.input,
         interactionId: interactionState.activeInteractionId ?? null,
-        model: event.message.model,
+        model: message.model,
         outputTokens: usage.output,
-        provider: event.message.provider,
-        stopReason: event.message.stopReason,
-        thinkingLevel: ctx.thinkingLevel,
+        provider: message.provider,
+        stopReason: message.stopReason,
+        selectedThinkingLevel: ctx.thinkingLevel,
+        dispatchedThinkingLevel: message.thinkingLevel ?? null,
+        providerThinkingLevel: message.providerThinkingLevel ?? null,
         totalTokens: usage.totalTokens,
       },
       leafId(ctx),
