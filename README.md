@@ -54,6 +54,12 @@ Optionally copy `config/auto-model.json.example` to `<agent-dir>/auto-model.json
 
 Do not also load a separate `jev-router.ts` registering `jev/auto`.
 
+### Code kata mode
+
+`code-kata` is independent from auto-model routing. Run `/kata on`, `/kata off`, `/kata toggle`, or `/kata status`, or press F7. The footer shows a `● kata` indicator while the extension is loaded. Add a `.katafile` to a project and put the learning goal in it as plain text. The extension then enables code-kata at session start and uses that text as the focus. `/kata off` prevents automatic activation for the rest of the extension runtime. Without a non-empty `.katafile`, enabling the mode asks what you want to learn. If you run Pi without an interactive UI, the agent asks for your focus before implementation. Code kata mode leaves one useful, bounded piece of coding work for you, helps keep unfinished code from breaking the project, and reviews your attempt. It does not change the selected model. The mode and focus reset when the extension runtime restarts.
+
+Add `code-kata.ts` to the configured extensions filter to load it.
+
 ### Protected commands
 
 `command-permission` always protects `git commit` and `git push`. Copy `config/command-permission.json.example` to `~/.pi/agent/command-permission.json` and add private command prefixes under `scripts`. The package is installed globally, so Pi sessions started by another agent load the extension and this configuration too when they use the standard agent directory. Sessions started with `--no-extensions` or a different `PI_CODING_AGENT_DIR` must explicitly load the package or provide the same configuration.
